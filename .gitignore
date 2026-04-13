@@ -1,0 +1,2 @@
+# Secrets — never commit your actual .env
+.env
