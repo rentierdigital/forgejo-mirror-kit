@@ -1,0 +1,51 @@
+# Forgejo Mirror Kit - pull-only GitHub mirror
+# Docs: https://github.com/rentierdigital/forgejo-mirror-kit
+
+services:
+  forgejo:
+    image: codeberg.org/forgejo/forgejo:9  # LTS branch, auto-updates within major
+    container_name: forgejo
+    restart: unless-stopped                # survives host reboot, stops on manual docker compose down
+    depends_on:
+      db:
+        condition: service_healthy          # waits for PostgreSQL to accept connections before starting
+    environment:
+      - USER_UID=1000                       # matches typical host user - avoids permission issues on volumes
+      - USER_GID=1000
+    ports:
+      - "3000:3000"                         # web UI - change left side if 3000 is taken
+      - "${FORGEJO_SSH_PORT:-2222}:22"      # SSH for git operations - uses .env value or 2222
+    volumes:
+      - forgejo_data:/data                  # all repos, avatars, LFS objects live here
+      - ./forgejo/app.ini:/data/gitea/conf/app.ini:ro  # read-only config mount - edit the file, restart to apply
+    networks:
+      - forgejo-net
+
+  db:
+    image: postgres:16-alpine              # Alpine = small image, pg16 = current LTS
+    container_name: forgejo-db
+    restart: unless-stopped
+    environment:
+      - POSTGRES_USER=forgejo              # matches app.ini [database] USER
+      - POSTGRES_PASSWORD=${POSTGRES_PASSWORD}
+      - POSTGRES_DB=forgejo                # matches app.ini [database] NAME
+    volumes:
+      - postgres_data:/var/lib/postgresql/data  # persistent DB storage
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U forgejo"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - forgejo-net
+    # No ports exposed - only Forgejo talks to the DB via the internal network.
+    # If you need psql access, uncomment:
+    # ports:
+    #   - "5432:5432"
+
+volumes:
+  forgejo_data:    # named volume - survives docker compose down, removed by docker compose down -v
+  postgres_data:
+
+networks:
+  forgejo-net:     # isolated bridge network - Forgejo <-> PostgreSQL only
